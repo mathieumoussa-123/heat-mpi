@@ -1,0 +1,4 @@
+# Replace with your real tailnet hostnames and vCPU slots
+heat-alice slots=2
+heat-bob slots=2
+heat-carol slots=2

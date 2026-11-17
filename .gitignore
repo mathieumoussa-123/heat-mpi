@@ -1,0 +1,14 @@
+# Build products, temporary files, and large simulation outputs
+build/
+*.o
+*.bin
+*.out
+__pycache__/
+.venv/
+# Do not commit secrets, credentials, or private SSH keys
+.env
+*.pem
+id_ed25519
+id_ed25519.pub
+# Keep only raw CSV results and relevant figure outputs in results/
+results/*.tmp
