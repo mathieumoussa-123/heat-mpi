@@ -13,6 +13,8 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdlib>
+#include <cstdint>
+#include <limits>
 #include <iomanip>
 #include <iostream>
 #include <numeric>
@@ -22,14 +24,37 @@
 namespace {
 
 constexpr int kTag = 7;
+constexpr std::size_t kMinBytes = 8U;
 constexpr std::size_t kMaxBytes = 16U * 1024U * 1024U;
 
 struct Options {
     int batches = 3;
     int warmups = 5;
+    std::size_t start_bytes = kMinBytes;
+    std::size_t end_bytes = kMaxBytes;
 };
 
-// All ranks receive the same command line from mpirun.
+// Parse a nonnegative integer without silently accepting overflow.
+bool parse_uint(const std::string& number, std::uint64_t& value) {
+    if (number.empty()) return false;
+    value = 0;
+    for (const char c : number) {
+        if (c < '0' || c > '9') return false;
+        const unsigned digit = static_cast<unsigned>(c - '0');
+        if (value > (std::numeric_limits<std::uint64_t>::max() - digit) / 10U) {
+            return false;
+        }
+        value = value * 10U + digit;
+    }
+    return true;
+}
+
+bool valid_message_size(std::uint64_t bytes) {
+    return bytes >= kMinBytes && bytes <= kMaxBytes &&
+           (bytes & (bytes - 1U)) == 0U;
+}
+
+// The same CLI options are supplied to both ranks by mpirun.
 bool parse_options(int argc, char** argv, Options& opt, bool& help) {
     for (int i = 1; i < argc; ++i) {
         const std::string arg(argv[i]);
@@ -37,28 +62,28 @@ bool parse_options(int argc, char** argv, Options& opt, bool& help) {
             help = true;
             return true;
         }
-        if (arg != "--batches" && arg != "--warmups") {
+        if (arg != "--batches" && arg != "--warmups" &&
+            arg != "--start-bytes" && arg != "--end-bytes") {
             return false;
         }
-        if (i + 1 >= argc) {
-            return false;
-        }
-        const std::string number(argv[++i]);
-        if (number.empty() || number.find_first_not_of("0123456789") != std::string::npos) {
-            return false;
-        }
-        const long value = std::strtol(number.c_str(), nullptr, 10);
-        if (value < 0 || value > 100000) {
-            return false;
-        }
+        if (i + 1 >= argc) return false;
+        std::uint64_t value = 0;
+        if (!parse_uint(argv[++i], value)) return false;
         if (arg == "--batches") {
-            if (value == 0) return false;
+            if (value == 0 || value > 100000) return false;
             opt.batches = static_cast<int>(value);
-        } else {
+        } else if (arg == "--warmups") {
+            if (value > 100000) return false;
             opt.warmups = static_cast<int>(value);
+        } else if (arg == "--start-bytes") {
+            if (!valid_message_size(value)) return false;
+            opt.start_bytes = static_cast<std::size_t>(value);
+        } else {
+            if (!valid_message_size(value)) return false;
+            opt.end_bytes = static_cast<std::size_t>(value);
         }
     }
-    return true;
+    return opt.start_bytes <= opt.end_bytes;
 }
 
 int repetitions_for(std::size_t bytes) {
@@ -104,15 +129,21 @@ int main(int argc, char** argv) {
     if (!parse_options(argc, argv, opt, help)) {
         if (rank == 0) {
             std::cerr << "Usage: mpi_pingpong [--batches POSITIVE_INTEGER] "
-                         "[--warmups NONNEGATIVE_INTEGER]\n";
+                         "[--warmups NONNEGATIVE_INTEGER] "
+                         "[--start-bytes POWER_OF_TWO] "
+                         "[--end-bytes POWER_OF_TWO]\n"
+                      << "Message sizes must be powers of two between 8 and "
+                      << kMaxBytes << " bytes, start <= end.\n";
         }
         MPI_Finalize();
         return EXIT_FAILURE;
     }
     if (help) {
         if (rank == 0) {
-            std::cout << "Usage: mpi_pingpong [--batches 3] [--warmups 5]\n"
-                      << "Exactly 2 ranks. CSV is printed by rank 0.\n";
+            std::cout << "Usage: mpi_pingpong [--batches 3] [--warmups 5] "
+                         "[--start-bytes 8] [--end-bytes 16777216]\n"
+                      << "Exactly 2 ranks. CSV is printed by rank 0.\n"
+                      << "Sizes must be powers of two in [8, 16777216].\n";
         }
         MPI_Finalize();
         return EXIT_SUCCESS;
@@ -123,9 +154,10 @@ int main(int argc, char** argv) {
         std::cout << "bytes,repetitions,mean_rtt_s,mean_oneway_s,"
                      "median_oneway_s,min_oneway_s,max_oneway_s,batches\n";
         std::cout << std::setprecision(12);
+        std::cout.flush();  // Complete header is available if the run is interrupted.
     }
 
-    for (std::size_t bytes = 8; bytes <= kMaxBytes; bytes *= 2) {
+    for (std::size_t bytes = opt.start_bytes; bytes <= opt.end_bytes; bytes *= 2) {
         std::vector<unsigned char> message(bytes, 42);
         const int count = static_cast<int>(bytes);  // 16 MiB fits MPI's int count.
         const int repetitions = repetitions_for(bytes);
@@ -170,6 +202,7 @@ int main(int argc, char** argv) {
                       << batch_mean_rtt.front() / 2.0 << ','
                       << batch_mean_rtt.back() / 2.0 << ','
                       << opt.batches << '\n';
+            std::cout.flush();  // Persist each finished size for resumable runs.
         }
     }
 
