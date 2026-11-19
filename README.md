@@ -49,5 +49,32 @@ python3 scripts/run_convergence.py --exe build/heat
 python3 scripts/run_instability.py --exe build/heat
 ```
 
-The serial `heat` executable does not use MPI. Part 0's `mpi_hello` and `mpi_pingpong`
-programs and comparison scripts continue to work unchanged.
+The serial `--decomp serial` execution path does not call MPI. The `heat` executable
+now links against Open MPI to support Part 2. Part 0 programs and fitting scripts
+continue to work unchanged.
+
+## Part 2 — MPI row-strip decomposition (implemented)
+
+Read [`PART2_STRIPS_GUIDE.md`](PART2_STRIPS_GUIDE.md) for the full C2 procedure.
+The existing serial solver is unchanged numerically; the new strip solver uses `--decomp strips`.
+
+Local correctness comparison (on **each** VM after building):
+
+```bash
+python3 scripts/test_strips.py --exe build/heat   --quick --report results/part2/strips_local.csv
+```
+
+Full C2 matrix (P=1..4, including uneven strips, Case 1/2/V and --T):
+
+```bash
+python3 scripts/test_strips.py --exe build/heat   --report results/part2/strips_local_full.csv
+```
+
+Across Tailscale VMs, start on Mathieu with a `--host` list beginning with Mathieu:
+
+```bash
+python3 scripts/test_strips.py --exe build/heat   --hosts heat-mathieu:2,heat-naji:2,heat-chris:2   --tailscale --quick   --report results/part2/strips_distributed.csv
+```
+
+Test runtime depends strongly on your measured Tailscale connection. Every VM must
+build the same project at `/home/mpi/heat-mpi`. Only rank 0 writes the field file.

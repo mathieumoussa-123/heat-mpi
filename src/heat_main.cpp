@@ -1,5 +1,7 @@
 #include "heat.hpp"
 
+#include <mpi.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -61,9 +63,10 @@ void print_usage(const char* executable) {
               << "  --steps INTEGER       Number of steps (default 100, unless --T is set)\n"
               << "  --T NUMBER            Requested physical final time; adjust dt so r<=requested\n"
               << "  --out PATH            Optional raw little-endian (N+1)x(N+1) double field\n"
-              << "  --decomp serial       Serial reference solver (strips/blocks come later)\n"
+              << "  --decomp serial|strips  Part 1 reference or Part 2 MPI row strips\n"
               << "  --seed-high-mode A    Verification test: add A*sin((N-1)*pi*x)*sin((N-1)*pi*y)\n"
               << "  --allow-unstable      TEST ONLY: allow r>0.25 in case V with seeded mode\n"
+              << "  --debug-halos         Strips only: print initial ghost rows (N<=16)\n"
               << "  --help                Show this help\n";
 }
 
@@ -109,6 +112,8 @@ Config parse_cli(int argc, char** argv) {
             c.high_mode_amplitude = floating(argument(i, argc, argv, flag), flag);
         } else if (flag == "--allow-unstable") {
             c.allow_unstable = true;
+        } else if (flag == "--debug-halos") {
+            c.debug_halos = true;
         } else {
             throw std::invalid_argument("unknown option: " + flag);
         }
@@ -117,8 +122,11 @@ Config parse_cli(int argc, char** argv) {
     if (given_T && given_steps) {
         throw std::invalid_argument("pass either --T or --steps, not both");
     }
-    if (c.decomp != "serial") {
-        throw std::invalid_argument("Part 1 supports only --decomp serial (strips and blocks are not implemented yet)");
+    if (c.decomp != "serial" && c.decomp != "strips") {
+        throw std::invalid_argument("--decomp must be serial or strips (blocks are not implemented yet)");
+    }
+    if (c.debug_halos && (c.decomp != "strips" || c.N > 16)) {
+        throw std::invalid_argument("--debug-halos requires --decomp strips and N <= 16");
     }
     if (!(c.requested_r > 0.0)) {
         throw std::invalid_argument("--r must be positive");
@@ -183,40 +191,85 @@ Config parse_cli(int argc, char** argv) {
 } // namespace heat
 
 int main(int argc, char** argv) {
+    // Preserve Part 1's non-MPI serial code path exactly: useful as a reference
+    // even when the executable is compiled and linked with MPI for Part 2.
     try {
         const heat::Config config = heat::parse_cli(argc, argv);
         if (config.allow_unstable) {
             std::cerr << "WARNING: TEST ONLY, r=" << config.r
                       << " violates the stability limit 0.25; intentional Task 6.7 experiment\n";
         }
-        auto result = heat::run_serial(config);
-        // Output and error checks are explicitly OUTSIDE the timed time-stepping loop.
-        if (!config.output.empty()) {
-            heat::write_binary_field(config.output, result.field);
+        if (config.decomp == "serial") {
+            auto result = heat::run_serial(config);
+            // Output and verification are outside the timed time-stepping loop.
+            if (!config.output.empty()) {
+                heat::write_binary_field(config.output, result.field);
+            }
+            const heat::Errors errors = (config.test_case == 'V')
+                                           ? heat::verification_errors(config, result.field)
+                                           : heat::Errors{};
+            std::cout << std::setprecision(17)
+                      << "decomp=serial P=1 case=" << config.test_case
+                      << " N=" << config.N
+                      << " r=" << config.r
+                      << " requested_r=" << config.requested_r
+                      << " dt=" << config.dt
+                      << " T=" << config.final_time
+                      << " steps=" << config.steps
+                      << " t_total=" << result.compute_seconds
+                      << " t_comp=" << result.compute_seconds
+                      << " t_comm=0";
+            if (config.test_case == 'V') {
+                std::cout << " err_inf=" << errors.infinity
+                          << " err_l2=" << errors.l2h;
+            }
+            std::cout << '\n';
+            return 0;
         }
-        const heat::Errors errors = (config.test_case == 'V')
-                                       ? heat::verification_errors(config, result.field)
-                                       : heat::Errors{};
 
-        std::cout << std::setprecision(17)
-                  << "decomp=serial P=1 case=" << config.test_case
-                  << " N=" << config.N
-                  << " r=" << config.r
-                  << " requested_r=" << config.requested_r
-                  << " dt=" << config.dt
-                  << " T=" << config.final_time
-                  << " steps=" << config.steps
-                  << " t_total=" << result.compute_seconds
-                  << " t_comp=" << result.compute_seconds
-                  << " t_comm=0";
-        if (config.test_case == 'V') {
-            std::cout << " err_inf=" << errors.infinity
-                      << " err_l2=" << errors.l2h;
+        // Strips always run as an MPI program, including P=1.
+        // This branch is only entered for a valid --decomp strips config.
+        MPI_Init(&argc, &argv);
+        int rank = -1;
+        int P = 0;
+        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+        MPI_Comm_size(MPI_COMM_WORLD, &P);
+        try {
+            heat::StripResult result = heat::run_strips(config, rank, P);
+            if (rank == 0) {
+                if (!config.output.empty()) {
+                    heat::write_binary_field(config.output, result.field);
+                }
+                const heat::Errors errors = (config.test_case == 'V')
+                                               ? heat::verification_errors(config, result.field)
+                                               : heat::Errors{};
+                std::cout << std::setprecision(17)
+                          << "decomp=strips P=" << P << " case=" << config.test_case
+                          << " N=" << config.N
+                          << " r=" << config.r
+                          << " requested_r=" << config.requested_r
+                          << " dt=" << config.dt
+                          << " T=" << config.final_time
+                          << " steps=" << config.steps
+                          << " t_total=" << result.total_seconds
+                          << " t_comp=" << result.compute_seconds
+                          << " t_comm=" << result.comm_seconds;
+                if (config.test_case == 'V') {
+                    std::cout << " err_inf=" << errors.infinity
+                              << " err_l2=" << errors.l2h;
+                }
+                std::cout << '\n';
+            }
+        } catch (const std::exception& error) {
+            std::cerr << "heat rank " << rank << ": " << error.what() << '\n';
+            // A rank must never silently exit while others await collectives.
+            MPI_Abort(MPI_COMM_WORLD, 1);
+            return 1;
         }
-        std::cout << '\n';
+        MPI_Finalize();
         return 0;
-    } catch (const std::exception& e) {
-        std::cerr << "heat: " << e.what() << '\n';
+    } catch (const std::exception& error) {
+        std::cerr << "heat: " << error.what() << '\n';
         return 1;
     }
 }

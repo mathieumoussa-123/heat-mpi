@@ -18,6 +18,7 @@ struct Config {
     std::string decomp = "serial";
     std::string output;
     double high_mode_amplitude = 0.0; // for Task 6.7; zero for ordinary verification
+    bool debug_halos = false;       // For Part 2: show initial halos on N <= 16 (not timed)
     bool allow_unstable = false;       // explicitly opt-in for Task 6.7 only
 };
 
@@ -31,6 +32,13 @@ struct Result {
     double compute_seconds = 0.0;
 };
 
+struct StripResult {
+    std::vector<double> field; // Present on rank 0 when --out or --case V.
+    double total_seconds = 0.0;
+    double compute_seconds = 0.0;
+    double comm_seconds = 0.0;
+};
+
 inline std::size_t index(int i, int j, int N) noexcept {
     return static_cast<std::size_t>(j) * (static_cast<std::size_t>(N) + 1U)
            + static_cast<std::size_t>(i);
@@ -39,6 +47,7 @@ inline std::size_t index(int i, int j, int N) noexcept {
 Config parse_cli(int argc, char** argv);
 void print_usage(const char* executable);
 Result run_serial(const Config& config);
+StripResult run_strips(const Config& config, int rank, int size);
 Errors verification_errors(const Config& config, const std::vector<double>& field);
 void write_binary_field(const std::string& file, const std::vector<double>& field);
 

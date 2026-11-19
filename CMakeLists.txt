@@ -12,8 +12,9 @@ foreach(target mpi_hello mpi_pingpong)
     target_link_libraries(${target} PRIVATE MPI::MPI_CXX)
 endforeach()
 
-# Keep the serial solver independent of MPI so it remains the reference for Parts 2/3.
-add_executable(heat src/heat_main.cpp src/heat_serial.cpp src/heat_io.cpp)
+# One heat executable, with the unchanged serial reference and Part 2 MPI strips.
+add_executable(heat src/heat_main.cpp src/heat_serial.cpp src/heat_strips.cpp src/heat_io.cpp)
+target_link_libraries(heat PRIVATE MPI::MPI_CXX)
 foreach(target mpi_hello mpi_pingpong heat)
     target_compile_options(${target} PRIVATE -O2 -ffp-contract=off -Wall -Wextra -Wpedantic)
 endforeach()
@@ -25,3 +26,13 @@ add_test(NAME heat_case1_smoke
          COMMAND heat --decomp serial --case 1 --N 8 --r 0.2 --steps 10)
 add_test(NAME heat_case2_smoke
          COMMAND heat --decomp serial --case 2 --N 8 --r 0.2 --steps 10)
+
+# Small local MPI smoke tests; the stronger C2 byte comparisons use scripts/test_strips.py.
+if(MPIEXEC_EXECUTABLE)
+    add_test(NAME heat_strips_p1_smoke
+             COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 1
+                     $<TARGET_FILE:heat> --decomp strips --case V --N 8 --r 0.2 --steps 2)
+    add_test(NAME heat_strips_p2_smoke
+             COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+                     $<TARGET_FILE:heat> --decomp strips --case 2 --N 8 --r 0.2 --steps 2)
+endif()
