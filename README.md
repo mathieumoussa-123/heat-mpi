@@ -26,3 +26,28 @@ Benchmark update: use `--mca pml ob1 --mca btl self,vader` for same-VM shared
 memory on Ubuntu 24.04 / Open MPI 4.x, and `--mca pml ob1 --mca btl self,tcp`
 plus the Tailscale interface selectors for cross-VM tests. See guide Section 3.
 The first four CSV columns are backward compatible with the fitting script.
+
+## Part 1 — Serial heat solver (implemented)
+
+See [`PART1_SERIAL_GUIDE.md`](PART1_SERIAL_GUIDE.md) for full commands, design and requirements.
+
+Build on each Ubuntu VM (same procedure as Part 0):
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j2
+ctest --test-dir build --output-on-failure
+```
+
+Run an ordinary stable case or verification case:
+
+```bash
+./build/heat --decomp serial --case 1 --N 128 --r 0.2 --steps 500 --out results/part1/plate_case1.bin
+./build/heat --decomp serial --case V --N 64 --r 0.2 --T 0.05
+python3 scripts/test_serial.py --exe build/heat
+python3 scripts/run_convergence.py --exe build/heat
+python3 scripts/run_instability.py --exe build/heat
+```
+
+The serial `heat` executable does not use MPI. Part 0's `mpi_hello` and `mpi_pingpong`
+programs and comparison scripts continue to work unchanged.
