@@ -1,0 +1,7 @@
+experiment,file,sizes,t_s_us,t_w_s_per_byte,fitted_bandwidth_MiB_per_s
+"Chris (same VM, SHM)",ping_same_heat-chris_shm.csv,22,0.219731000,7.415825491785e-11,12859.988648097
+"Mathieu (same VM, SHM)",ping_same_heat-mathieu_shm.csv,22,0.231729000,9.221128914139e-11,10342.272896152
+"Naji (same VM, SHM)",ping_same_heat-naji_shm.csv,22,0.142604667,1.605638573331e-10,5939.532920087
+Chris ↔ Naji,ping_heat-chris_heat-naji.csv,22,40603.914998500,1.213167978430e-05,0.078610245
+Mathieu ↔ Chris,ping_heat-mathieu_heat-chris.csv,22,54063.115690500,8.970565565439e-06,0.106311504
+Mathieu ↔ Naji,ping_heat-mathieu_heat-naji.csv,22,81682.226157000,1.113724480343e-05,0.085629286
