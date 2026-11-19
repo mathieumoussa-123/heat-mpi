@@ -2,7 +2,7 @@
 
 See `GROUP_SETUP_GUIDE.md` for the complete group instructions.
 
-This starter contains *only Part 0 setup utilities*, not the final heat solver:
+The repository contains the Part 0 tools and the Part 1–3 heat solvers. Its Part 0 utilities include:
 - `src/mpi_hello.cpp` — verifies distributed MPI ranks.
 - `src/mpi_pingpong.cpp` — times round trips from 8 B through 16 MiB and records batch variability (default 3 batches).
 - `scripts/fit_pingpong.py` — reports the one-way latency / effective bandwidth model.
@@ -78,3 +78,29 @@ python3 scripts/test_strips.py --exe build/heat   --hosts heat-mathieu:2,heat-na
 
 Test runtime depends strongly on your measured Tailscale connection. Every VM must
 build the same project at `/home/mpi/heat-mpi`. Only rank 0 writes the field file.
+
+## Part 3 — MPI 2D Cartesian blocks (implemented; cluster validation required)
+
+The same `heat` program now supports `--decomp serial|strips|blocks`.
+See [`PART3_BLOCKS_GUIDE.md`](PART3_BLOCKS_GUIDE.md) for the professor's requirements,
+MPI topology, halo debugging, test matrix, prediction model, and exact VM commands.
+
+Quick local checks on any VM (each team VM has 4 vCPUs):
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j2
+ctest --test-dir build --output-on-failure
+python3 scripts/test_serial.py --exe build/heat
+python3 scripts/test_blocks.py --exe build/heat --hosts localhost:4 \
+  --quick --ranks 1,2,3,4 --report results/part3/blocks_local_quick.csv
+```
+
+Predictions from the **corrected** Part 0 fit summary (no MPI runs launched):
+
+```bash
+python3 scripts/compare_decomps.py --out-dir results/part3
+```
+
+Genuine MPI across at least two VMs, and the P=4/8 / N=512/2048/8192
+strips-vs-blocks measurements, must still be performed on the Ubuntu cluster.

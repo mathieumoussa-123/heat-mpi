@@ -78,7 +78,7 @@ def main():
         call(exe, "--case", "V", "--N", "64", "--r", "0.25", "--steps", "40",
              "--seed-high-mode", "1e-6")
         call(exe, "--case", "2", "--N", "8", "--T", "0.05", "--r", "0.25")
-        call(exe, "--decomp", "blocks", ok=False)
+        call(exe, "--decomp", "unrecognized", ok=False)
         call(exe, "--r", "0", ok=False)
         call(exe, "--T", "-1", ok=False)
         call(exe, "--steps", "64", "--T", "0.05", ok=False)

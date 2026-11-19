@@ -63,10 +63,10 @@ void print_usage(const char* executable) {
               << "  --steps INTEGER       Number of steps (default 100, unless --T is set)\n"
               << "  --T NUMBER            Requested physical final time; adjust dt so r<=requested\n"
               << "  --out PATH            Optional raw little-endian (N+1)x(N+1) double field\n"
-              << "  --decomp serial|strips  Part 1 reference or Part 2 MPI row strips\n"
+              << "  --decomp serial|strips|blocks  Serial / MPI strips / MPI Cartesian blocks\n"
               << "  --seed-high-mode A    Verification test: add A*sin((N-1)*pi*x)*sin((N-1)*pi*y)\n"
               << "  --allow-unstable      TEST ONLY: allow r>0.25 in case V with seeded mode\n"
-              << "  --debug-halos         Strips only: print initial ghost rows (N<=16)\n"
+              << "  --debug-halos         Print initial/final strip or block ghost layers (N<=16)\n"
               << "  --help                Show this help\n";
 }
 
@@ -122,11 +122,11 @@ Config parse_cli(int argc, char** argv) {
     if (given_T && given_steps) {
         throw std::invalid_argument("pass either --T or --steps, not both");
     }
-    if (c.decomp != "serial" && c.decomp != "strips") {
-        throw std::invalid_argument("--decomp must be serial or strips (blocks are not implemented yet)");
+    if (c.decomp != "serial" && c.decomp != "strips" && c.decomp != "blocks") {
+        throw std::invalid_argument("--decomp must be serial, strips, or blocks");
     }
-    if (c.debug_halos && (c.decomp != "strips" || c.N > 16)) {
-        throw std::invalid_argument("--debug-halos requires --decomp strips and N <= 16");
+    if (c.debug_halos && (c.decomp == "serial" || c.N > 16)) {
+        throw std::invalid_argument("--debug-halos requires --decomp strips/blocks and N <= 16");
     }
     if (!(c.requested_r > 0.0)) {
         throw std::invalid_argument("--r must be positive");
@@ -227,15 +227,16 @@ int main(int argc, char** argv) {
             return 0;
         }
 
-        // Strips always run as an MPI program, including P=1.
-        // This branch is only entered for a valid --decomp strips config.
+        // Strips and blocks always run as MPI programs, including P=1.
         MPI_Init(&argc, &argv);
         int rank = -1;
         int P = 0;
         MPI_Comm_rank(MPI_COMM_WORLD, &rank);
         MPI_Comm_size(MPI_COMM_WORLD, &P);
         try {
-            heat::StripResult result = heat::run_strips(config, rank, P);
+            heat::StripResult result = (config.decomp == "strips")
+                                          ? heat::run_strips(config, rank, P)
+                                          : heat::run_blocks(config, rank, P);
             if (rank == 0) {
                 if (!config.output.empty()) {
                     heat::write_binary_field(config.output, result.field);
@@ -244,7 +245,7 @@ int main(int argc, char** argv) {
                                                ? heat::verification_errors(config, result.field)
                                                : heat::Errors{};
                 std::cout << std::setprecision(17)
-                          << "decomp=strips P=" << P << " case=" << config.test_case
+                          << "decomp=" << config.decomp << " P=" << P << " case=" << config.test_case
                           << " N=" << config.N
                           << " r=" << config.r
                           << " requested_r=" << config.requested_r

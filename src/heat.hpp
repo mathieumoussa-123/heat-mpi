@@ -18,7 +18,7 @@ struct Config {
     std::string decomp = "serial";
     std::string output;
     double high_mode_amplitude = 0.0; // for Task 6.7; zero for ordinary verification
-    bool debug_halos = false;       // For Part 2: show initial halos on N <= 16 (not timed)
+    bool debug_halos = false;       // Part 2/3 small-grid halo inspection (N <= 16, untimed)
     bool allow_unstable = false;       // explicitly opt-in for Task 6.7 only
 };
 
@@ -48,6 +48,7 @@ Config parse_cli(int argc, char** argv);
 void print_usage(const char* executable);
 Result run_serial(const Config& config);
 StripResult run_strips(const Config& config, int rank, int size);
+StripResult run_blocks(const Config& config, int rank, int size);
 Errors verification_errors(const Config& config, const std::vector<double>& field);
 void write_binary_field(const std::string& file, const std::vector<double>& field);
 
